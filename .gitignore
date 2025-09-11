@@ -37,3 +37,16 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+.claude/
+.vscode/
+
+# Build artifacts
+ios/build/
+android/build/
+android/app/build/
+
+# IDE
+*.sublime-project
+*.sublime-workspace
+.idea/
+
