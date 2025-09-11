@@ -41,7 +41,7 @@ app-example
 .vscode/
 
 # Build artifacts
-ios/build/
+ios/
 android/build/
 android/app/build/
 
