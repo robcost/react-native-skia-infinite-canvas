@@ -50,3 +50,4 @@ android/app/build/
 *.sublime-workspace
 .idea/
 
+android/

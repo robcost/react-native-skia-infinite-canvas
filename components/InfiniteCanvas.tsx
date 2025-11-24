@@ -5,6 +5,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useDerivedValue,
   useSharedValue,
+  useAnimatedReaction,
   withDecay,
   runOnJS
 } from 'react-native-reanimated';
@@ -59,7 +60,14 @@ export default function InfiniteCanvas() {
   
   // Selection state
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
-  
+
+  /**
+   * React state for visible items.
+   * This state is updated by useAnimatedReaction when SharedValues change,
+   * ensuring the canvas re-renders during pan/pinch gestures.
+   */
+  const [visibleItemsState, setVisibleItemsState] = useState<CanvasItem[]>(sampleItems);
+
 
   // Load font (optional - fallback to default if not found)
   const font = useFont(require('../assets/fonts/SpaceMono-Regular.ttf'), 14);
@@ -73,34 +81,54 @@ export default function InfiniteCanvas() {
     ];
   });
 
-  // Content culling - only render items visible in viewport (using blog post approach)
-  const visibleItems = useDerivedValue(() => {
-    const currentZoom = scalePrevious.value;
-    const currentPanX = panX.value;
-    const currentPanY = panY.value;
-    
-    // Calculate viewport bounds in world coordinates (blog post method)
-    const viewportLeft = (0 - currentPanX) / currentZoom;
-    const viewportRight = (screenWidth - currentPanX) / currentZoom;
-    const viewportTop = (0 - currentPanY) / currentZoom;
-    const viewportBottom = (screenHeight - currentPanY) / currentZoom;
-    
-    // Add margin for smooth scrolling
-    const margin = 300 / currentZoom;
+  /**
+   * Content culling - only render items visible in viewport.
+   *
+   * Uses useAnimatedReaction to bridge Reanimated's UI thread to React's render cycle.
+   * This is necessary because SharedValue changes (during pan/pinch gestures) don't
+   * trigger React re-renders. By using runOnJS to update React state, we ensure
+   * the canvas re-renders with the correct visible items during gestures.
+   *
+   * Note: A useDerivedValue approach won't work here because accessing .value
+   * in the render function creates a static snapshot that only updates on React re-renders.
+   */
+  useAnimatedReaction(
+    () => ({
+      x: panX.value,
+      y: panY.value,
+      s: scalePrevious.value,
+    }),
+    (current) => {
+      const currentZoom = current.s;
+      const currentPanX = current.x;
+      const currentPanY = current.y;
 
-    return sampleItems.filter(item => {
-      const itemLeft = item.x;
-      const itemRight = item.x + item.width;
-      const itemTop = item.y;
-      const itemBottom = item.y + item.height;
-      
-      // Check if item intersects with viewport (blog post logic)
-      return !(itemRight < viewportLeft - margin ||
-               itemLeft > viewportRight + margin ||
-               itemBottom < viewportTop - margin ||
-               itemTop > viewportBottom + margin);
-    });
-  });
+      // Calculate viewport bounds in world coordinates
+      const viewportLeft = (0 - currentPanX) / currentZoom;
+      const viewportRight = (screenWidth - currentPanX) / currentZoom;
+      const viewportTop = (0 - currentPanY) / currentZoom;
+      const viewportBottom = (screenHeight - currentPanY) / currentZoom;
+
+      // Add margin for smooth scrolling
+      const margin = 300 / currentZoom;
+
+      const filtered = sampleItems.filter(item => {
+        const itemLeft = item.x;
+        const itemRight = item.x + item.width;
+        const itemTop = item.y;
+        const itemBottom = item.y + item.height;
+
+        // Check if item intersects with viewport
+        return !(itemRight < viewportLeft - margin ||
+                 itemLeft > viewportRight + margin ||
+                 itemBottom < viewportTop - margin ||
+                 itemTop > viewportBottom + margin);
+      });
+
+      runOnJS(setVisibleItemsState)(filtered);
+    },
+    []
+  );
 
   /**
    * Handles tap gestures for item selection
@@ -198,7 +226,7 @@ export default function InfiniteCanvas() {
       <Animated.View style={{ flex: 1 }}>
         <Canvas style={{ flex: 1 }}>
           <Group transform={transform}>
-            {visibleItems.value.map(item => {
+            {visibleItemsState.map(item => {
               const isSelected = selectedItemId === item.id;
               return (
                 <Group key={item.id}>
